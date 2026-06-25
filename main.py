@@ -3,7 +3,8 @@ AstrBot 图片工具箱插件 main.py
 
 功能：
 - 旋转 — 任意角度旋转图片/GIF (/旋转 90)
-- 对称 — 水平或垂直镜像翻转 (/对称 水平)
+- 对称 — 轴对称：取一半镜像到另一半 (/对称 上)
+- 翻转 — 整体镜像翻转 (/翻转 水平)
 - 变速 — 调整GIF播放速度 (/变速 2.0)
 - 万花筒 — 对称分段式万花筒效果 (/万花筒)
 - 裸眼3D — 分层假象裸眼3D效果 (/裸眼3d)
@@ -23,7 +24,8 @@ import astrbot.api.message_components as Comp
 
 from .image_processor import (
     rotate_image,
-    mirror_image,
+    symmetry_image,
+    flip_image,
     speed_change,
     kaleidoscope,
     bare_eye_3d,
@@ -81,25 +83,23 @@ class ImgToolPlugin(Star):
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
 
     # ============================================================
-    #  对称
+    #  对称 (轴对称) — 取图像一半对称补到另一半
     # ============================================================
 
     @filter.command("对称")
-    async def mirror(self, event: AstrMessageEvent, direction: str = "水平"):
-        """水平/垂直镜像翻转图片或GIF。如 /对称 水平、/对称 垂直。"""
-        yield event.plain_result("🪞 正在处理对称效果，请稍候...")
+    async def symmetry(self, event: AstrMessageEvent, direction: str = "上"):
+        """轴对称：将图像从中线分开，取一半对称到另一半。
+        方向: 上/下/左/右，如 /对称 上、/对称 右"""
+        yield event.plain_result("🪞 正在处理轴对称效果，请稍候...")
 
         dir_map = {
-            "水平": "horizontal",
-            "垂直": "vertical",
-            "horizontal": "horizontal",
-            "vertical": "vertical",
-            "h": "horizontal",
-            "v": "vertical",
+            "上": "top", "下": "bottom", "左": "left", "右": "right",
+            "top": "top", "bottom": "bottom", "left": "left", "right": "right",
+            "t": "top", "b": "bottom", "l": "left", "r": "right",
         }
         actual_dir = dir_map.get(direction)
         if actual_dir is None:
-            yield event.plain_result("❌ 方向格式错误，请输入 水平 或 垂直，如：/对称 水平")
+            yield event.plain_result("❌ 方向格式错误，请输入：上/下/左/右，如：/对称 上")
             return
 
         try:
@@ -108,10 +108,41 @@ class ImgToolPlugin(Star):
                 yield event.plain_result("❌ 没有找到图片或GIF。请引用一张图片消息，或直接发送图片并附带指令。")
                 return
 
-            output = mirror_image(image_data, direction=actual_dir)
-            yield event.image_result(self._save_temp_image(output, "mirrored"))
+            output = symmetry_image(image_data, direction=actual_dir)
+            yield event.image_result(self._save_temp_image(output, "symmetry"))
         except Exception as e:
             logger.error(f"对称处理失败: {str(e)}")
+            yield event.plain_result(f"❌ 处理失败: {str(e)}")
+
+    # ============================================================
+    #  翻转 (整体镜像) — 原 mirror/flip 功能保留
+    # ============================================================
+
+    @filter.command("翻转")
+    async def flip(self, event: AstrMessageEvent, direction: str = "水平"):
+        """整体翻转图片/GIF（镜像）。方向: 水平/垂直，如 /翻转 水平、/翻转 垂直"""
+        yield event.plain_result("🪞 正在处理翻转效果，请稍候...")
+
+        dir_map = {
+            "水平": "horizontal", "垂直": "vertical",
+            "horizontal": "horizontal", "vertical": "vertical",
+            "h": "horizontal", "v": "vertical",
+        }
+        actual_dir = dir_map.get(direction)
+        if actual_dir is None:
+            yield event.plain_result("❌ 方向格式错误，请输入 水平 或 垂直，如：/翻转 水平")
+            return
+
+        try:
+            image_data = await self._extract_image(event)
+            if image_data is None:
+                yield event.plain_result("❌ 没有找到图片或GIF。请引用一张图片消息，或直接发送图片并附带指令。")
+                return
+
+            output = flip_image(image_data, direction=actual_dir)
+            yield event.image_result(self._save_temp_image(output, "flip"))
+        except Exception as e:
+            logger.error(f"翻转处理失败: {str(e)}")
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
 
     # ============================================================
@@ -239,7 +270,8 @@ class ImgToolPlugin(Star):
             "────────────────\n"
             "发送或引用一张图片/GIF，附带以下指令：\n\n"
             "🔄 /旋转 [角度]  — 旋转图片，如 /旋转 90\n"
-            "🪞 /对称 [方向]  — 水平/垂直镜像，如 /对称 水平\n"
+            "🪞 /对称 [方向]  — 轴对称：上/下/左/右\n"
+            "🪞 /翻转 [方向]  — 整体翻转：水平/垂直\n"
             "⏩ /变速 [因子]  — GIF变速，如 /变速 2.0\n"
             "🔮 /万花筒 [段数] — 万花筒效果，如 /万花筒 8\n"
             "🕶️ /裸眼3d       — 裸眼3D效果\n"

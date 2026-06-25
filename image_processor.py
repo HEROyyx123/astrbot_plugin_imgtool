@@ -186,25 +186,94 @@ def rotate_image(
 
 
 # ============================================================
-#  2. 对称 (Mirror/Flip)
+#  2. 轴对称 (Symmetry) — 取图像一半对称填补另一半
+#    上对称: 保留上半部 → 镜像到下半部
+#    下对称: 保留下半部 → 镜像到上半部
+#    左对称: 保留左半部 → 镜像到右半部
+#    右对称: 保留右半部 → 镜像到左半部
 # ============================================================
 
-def _mirror_frame(frame: Image.Image, direction: str = "horizontal") -> Image.Image:
-    """对称单帧。"""
+def _symmetry_frame(frame: Image.Image, direction: str = "top") -> Image.Image:
+    """轴对称单帧。"""
+    w, h = frame.size
+    frame_rgba = frame.convert("RGBA")
+    result = Image.new("RGBA", (w, h))
+
+    if direction == "top":
+        # 取上半部，垂直翻转后补到下半部
+        half_h = h // 2
+        top_half = frame_rgba.crop((0, 0, w, half_h))
+        mirrored = top_half.transpose(Image.FLIP_TOP_BOTTOM)
+        result.paste(frame_rgba.crop((0, 0, w, half_h)), (0, 0))
+        result.paste(mirrored, (0, half_h))
+
+    elif direction == "bottom":
+        # 取下半部，垂直翻转后补到上半部
+        half_h = h // 2
+        bottom_half = frame_rgba.crop((0, half_h, w, h))
+        mirrored = bottom_half.transpose(Image.FLIP_TOP_BOTTOM)
+        result.paste(mirrored, (0, 0))
+        result.paste(frame_rgba.crop((0, half_h, w, h)), (0, half_h))
+
+    elif direction == "left":
+        # 取左半部，水平翻转后补到右半部
+        half_w = w // 2
+        left_half = frame_rgba.crop((0, 0, half_w, h))
+        mirrored = left_half.transpose(Image.FLIP_LEFT_RIGHT)
+        result.paste(frame_rgba.crop((0, 0, half_w, h)), (0, 0))
+        result.paste(mirrored, (half_w, 0))
+
+    elif direction == "right":
+        # 取右半部，水平翻转后补到左半部
+        half_w = w // 2
+        right_half = frame_rgba.crop((half_w, 0, w, h))
+        mirrored = right_half.transpose(Image.FLIP_LEFT_RIGHT)
+        result.paste(mirrored, (0, 0))
+        result.paste(frame_rgba.crop((half_w, 0, w, h)), (half_w, 0))
+
+    else:
+        raise ValueError(f"不支持的对称方向: {direction}，可选: top/bottom/left/right")
+
+    return result
+
+
+def symmetry_image(
+    data: bytes,
+    direction: str = "top",
+) -> bytes:
+    """
+    将图片/GIF进行轴对称（取一半对称到另一半）。
+
+    Args:
+        data: 图像二进制数据
+        direction: "top" 上对称 / "bottom" 下对称 / "left" 左对称 / "right" 右对称
+
+    Returns:
+        处理后的图像二进制数据
+    """
+    return _process_single_frame_or_gif(data, _symmetry_frame, direction=direction)
+
+
+# ============================================================
+#  3. 翻转 (Mirror/Flip) — 整体镜像翻转，保留原功能
+# ============================================================
+
+def _flip_frame(frame: Image.Image, direction: str = "horizontal") -> Image.Image:
+    """翻转单帧。"""
     if direction == "horizontal":
         return frame.transpose(Image.FLIP_LEFT_RIGHT)
     elif direction == "vertical":
         return frame.transpose(Image.FLIP_TOP_BOTTOM)
     else:
-        raise ValueError(f"不支持的对称方向: {direction}")
+        raise ValueError(f"不支持的翻转方向: {direction}")
 
 
-def mirror_image(
+def flip_image(
     data: bytes,
     direction: str = "horizontal",
 ) -> bytes:
     """
-    将图片/GIF进行对称（镜像翻转）。
+    将图片/GIF进行整体翻转（镜像）。
 
     Args:
         data: 图像二进制数据
@@ -213,11 +282,11 @@ def mirror_image(
     Returns:
         处理后的图像二进制数据
     """
-    return _process_single_frame_or_gif(data, _mirror_frame, direction=direction)
+    return _process_single_frame_or_gif(data, _flip_frame, direction=direction)
 
 
 # ============================================================
-#  3. 变速 (Speed change)
+#  4. 变速 (Speed change)
 # ============================================================
 
 def speed_change(
@@ -247,7 +316,7 @@ def speed_change(
 
 
 # ============================================================
-#  4. 万花筒 (Kaleidoscope)
+#  5. 万花筒 (Kaleidoscope)
 # ============================================================
 
 def _kaleidoscope_frame(
@@ -365,7 +434,7 @@ def kaleidoscope(
 
 
 # ============================================================
-#  5. 裸眼3D (Bare-eye 3D) — 移植自 astrbot_plugin_3dgif
+#  6. 裸眼3D (Bare-eye 3D) — 移植自 astrbot_plugin_3dgif
 # ============================================================
 
 def compute_background(frames: List[Image.Image]) -> Image.Image:
@@ -547,7 +616,7 @@ def bare_eye_3d(
 
 
 # ============================================================
-#  6. 高级组合效果
+#  7. 高级组合效果
 # ============================================================
 
 def apply_fx_pipeline(
@@ -571,7 +640,7 @@ def apply_fx_pipeline(
         result = _process_gif_frames(result, _rotate_frame, angle=rotate_angle)
 
     if mirror_direction is not None:
-        result = _process_gif_frames(result, _mirror_frame, direction=mirror_direction)
+        result = _process_gif_frames(result, _symmetry_frame, direction=mirror_direction)
 
     if kaleidoscope_segments is not None:
         k_zoom = kaleidoscope_zoom if kaleidoscope_zoom is not None else 1.0
