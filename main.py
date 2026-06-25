@@ -75,7 +75,7 @@ class ImgToolPlugin(Star):
                 return
 
             output = rotate_image(image_data, angle=angle_float)
-            await self._send_image(event, output, f"rotated_{angle}")
+            yield event.image_result(self._save_temp_image(output, "rotated"))
         except Exception as e:
             logger.error(f"旋转处理失败: {str(e)}")
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
@@ -109,7 +109,7 @@ class ImgToolPlugin(Star):
                 return
 
             output = mirror_image(image_data, direction=actual_dir)
-            await self._send_image(event, output, f"mirrored_{direction}")
+            yield event.image_result(self._save_temp_image(output, "mirrored"))
         except Exception as e:
             logger.error(f"对称处理失败: {str(e)}")
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
@@ -144,7 +144,7 @@ class ImgToolPlugin(Star):
                 return
 
             output = speed_change(image_data, speed=speed_factor)
-            await self._send_image(event, output, f"speed_{factor}")
+            yield event.image_result(self._save_temp_image(output, "speed"))
         except Exception as e:
             logger.error(f"变速处理失败: {str(e)}")
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
@@ -181,7 +181,7 @@ class ImgToolPlugin(Star):
                 zoom=self.kaleidoscope_zoom,
                 max_frames=self.max_frames,
             )
-            await self._send_image(event, output, f"kaleidoscope_{seg}")
+            yield event.image_result(self._save_temp_image(output, "kaleidoscope"))
         except Exception as e:
             logger.error(f"万花筒处理失败: {str(e)}")
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
@@ -220,7 +220,7 @@ class ImgToolPlugin(Star):
                 max_frames=self.max_frames,
             )
 
-            await self._send_image(event, output_data, "bare_eye_3d")
+            yield event.image_result(self._save_temp_image(output_data, "bare_eye_3d"))
         except ValueError as e:
             yield event.plain_result(f"❌ {str(e)}")
         except Exception as e:
@@ -463,17 +463,13 @@ class ImgToolPlugin(Star):
         """检查字节数据是否为GIF格式。"""
         return data[:6] in (b"GIF87a", b"GIF89a")
 
-    async def _send_image(self, event: AstrMessageEvent, data: bytes, tag: str):
-        """保存临时文件并发送图片结果。"""
+    def _save_temp_image(self, data: bytes, tag: str) -> str:
+        """保存临时文件并返回路径。"""
         ext = ".gif" if self._is_gif_data(data) else ".png"
-        temp_path = self.temp_dir / f"output_{tag}_{id(event)}{ext}"
+        temp_path = self.temp_dir / f"output_{tag}_{id(self)}_{os.urandom(4).hex()}{ext}"
         with open(temp_path, "wb") as f:
             f.write(data)
-        yield event.image_result(str(temp_path))
-        try:
-            temp_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+        return str(temp_path)
 
     async def terminate(self):
         """插件被卸载/停用时清理临时目录。"""
