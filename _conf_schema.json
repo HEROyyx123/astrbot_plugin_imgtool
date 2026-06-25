@@ -1,14 +1,63 @@
 {
-  "max_frames": {
-    "description": "GIF最大处理帧数，超过此值会均匀采样以减少处理负担",
+  "line_spacing": {
+    "description": "裸眼3D - 分割白线间距（像素），值越大线条越稀疏",
     "type": "int",
-    "hint": "推荐60-150。GIF帧数过多时自动采样，过低可能影响流畅度",
-    "default": 100
+    "hint": "推荐60-120，越小分割越密。模拟'窗格'大小，影响背景层次感",
+    "default": 80
+  },
+  "line_width": {
+    "description": "裸眼3D - 分割白线宽度（像素），线条粗细",
+    "type": "int",
+    "hint": "推荐2-5，太细不明显，太粗遮挡过多画面",
+    "default": 3
+  },
+  "line_alpha": {
+    "description": "裸眼3D - 分割线透明度，0=全透明，255=完全不透明",
+    "type": "int",
+    "hint": "推荐150-255，略透明使线条不遮挡过多画面细节",
+    "default": 200
+  },
+  "line_direction": {
+    "description": "裸眼3D - 线条方向",
+    "type": "string",
+    "hint": "both=网格线, horizontal=水平线, vertical=垂直线",
+    "default": "both",
+    "options": ["both", "horizontal", "vertical"]
+  },
+  "mask_threshold": {
+    "description": "裸眼3D - 前景检测灵敏度阈值（0-255），越小提取的前景越多",
+    "type": "int",
+    "hint": "推荐15-40。值太小会提取过多背景噪点，太大会丢失运动主体",
+    "default": 25
+  },
+  "mask_blur": {
+    "description": "裸眼3D - 前景边缘模糊半径，值越大边缘越柔和",
+    "type": "int",
+    "hint": "推荐3-10。用于平滑前景边缘，避免生硬的切边",
+    "default": 7
+  },
+  "foreground_blur": {
+    "description": "裸眼3D - 前景高斯模糊半径（模拟景深），0=不模糊",
+    "type": "int",
+    "hint": "推荐0-5。前景轻微模糊可以模拟镜头景深效果，增强立体感",
+    "default": 0
+  },
+  "max_frames": {
+    "description": "裸眼3D - 最大处理帧数，超过此值会均匀采样以减少处理负担",
+    "type": "int",
+    "hint": "GIF帧数过多时控制处理帧数上限，过低可能影响流畅度",
+    "default": 48
   },
   "kaleidoscope_segments": {
-    "description": "万花筒默认分割数（4-24的偶数）",
+    "description": "万花筒 - 对称分段数，值越大图案越复杂",
     "type": "int",
-    "hint": "推荐4-16。值越大图案越细密，过大会导致细节丢失",
+    "hint": "推荐4-12。偶数效果更佳，过大会导致性能下降",
     "default": 8
+  },
+  "kaleidoscope_zoom": {
+    "description": "万花筒 - 缩放比例，控制图案大小",
+    "type": "float",
+    "hint": "推荐0.5-2.0。1.0为原始大小",
+    "default": 1.0
   }
 }

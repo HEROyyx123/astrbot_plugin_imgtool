@@ -1,22 +1,17 @@
 """
-AstrBot 图像工具箱插件 main.py
+AstrBot 图片工具箱插件 main.py
 
 功能：
-- 旋转   — 图片/GIF任意角度旋转
-- 对称   — 水平/垂直/对角线镜像翻转
-- 变速   — GIF播放速度调节
-- 万花筒 — 经典万花筒/多镜像特效
-
-用法示例：
-  /旋转 90          ← 旋转90度
-  /对称 水平         ← 水平翻转
-  /变速 2.0          ← 2倍速
-  /万花筒 8          ← 8段万花筒
+- 旋转 — 任意角度旋转图片/GIF (/旋转 90)
+- 对称 — 水平或垂直镜像翻转 (/对称 水平)
+- 变速 — 调整GIF播放速度 (/变速 2.0)
+- 万花筒 — 对称分段式万花筒效果 (/万花筒)
+- 裸眼3D — 分层假象裸眼3D效果 (/裸眼3d)
 """
 
+import io
 import os
 import re
-import shutil
 import tempfile
 from pathlib import Path
 from typing import Optional
@@ -28,323 +23,308 @@ import astrbot.api.message_components as Comp
 
 from .image_processor import (
     rotate_image,
-    rotate_gif,
     mirror_image,
-    mirror_gif,
-    speed_change_gif,
-    kaleidoscope_image,
-    kaleidoscope_gif,
-    kaleidoscope_triangle_gif,
-    _is_gif_data,
+    speed_change,
+    kaleidoscope,
+    bare_eye_3d,
 )
 
 
-class ImageToolPlugin(Star):
+class ImgToolPlugin(Star):
     def __init__(self, context: Context, config: dict = None):
         super().__init__(context)
         self.config = config or {}
-        # 最大处理帧数
-        self.max_frames = self.config.get("max_frames", 100)
-        # 万花筒默认分割数
+
+        # 裸眼3D 参数
+        self.line_spacing = self.config.get("line_spacing", 80)
+        self.line_width = self.config.get("line_width", 3)
+        self.line_alpha = self.config.get("line_alpha", 200)
+        self.line_direction = self.config.get("line_direction", "both")
+        self.mask_threshold = self.config.get("mask_threshold", 25)
+        self.mask_blur = self.config.get("mask_blur", 7)
+        self.foreground_blur = self.config.get("foreground_blur", 0)
+        self.max_frames = self.config.get("max_frames", 48)
+
+        # 万花筒参数
         self.kaleidoscope_segments = self.config.get("kaleidoscope_segments", 8)
+        self.kaleidoscope_zoom = self.config.get("kaleidoscope_zoom", 1.0)
+
         # 临时目录
         self.temp_dir = Path(tempfile.gettempdir()) / "astrbot_imgtool"
         self.temp_dir.mkdir(parents=True, exist_ok=True)
 
     # ============================================================
-    #  命令1：旋转 (Rotate)
+    #  旋转
     # ============================================================
 
     @filter.command("旋转")
-    async def cmd_rotate(self, event: AstrMessageEvent, *extra_args):
-        """
-        旋转图片/GIF。
-        用法: /旋转 <角度>
-        示例: /旋转 90, /旋转 -45, /旋转 180
-        """
-        parts = event.message_str.strip().split(maxsplit=1)
-        angle = 90  # 默认角度
-
-        if len(parts) >= 2:
-            try:
-                angle = float(parts[1])
-            except ValueError:
-                yield event.plain_result("❌ 角度格式错误，请输入数字，如 90、-45、180")
-                return
-
-        yield event.plain_result(f"🔄 正在旋转 {angle}°...")
+    async def rotate(self, event: AstrMessageEvent, angle: str = "90"):
+        """旋转图片/GIF。可指定角度，如 /旋转 90、/旋转 -45。"""
+        yield event.plain_result(f"🔄 正在旋转 {angle}°，请稍候...")
 
         try:
-            data = await self._extract_image(event)
-            if data is None:
-                yield event.plain_result("❌ 没有找到图片/GIF。请发送图片并附带指令，或回复一条图片消息。")
+            angle_float = float(angle)
+        except ValueError:
+            yield event.plain_result("❌ 角度格式错误，请输入数字，如：/旋转 90")
+            return
+
+        try:
+            image_data = await self._extract_image(event)
+            if image_data is None:
+                yield event.plain_result("❌ 没有找到图片或GIF。请引用一张图片消息，或直接发送图片并附带指令。")
                 return
 
-            if _is_gif_data(data):
-                logger.info(f"旋转GIF: angle={angle}, max_frames={self.max_frames}")
-                output = rotate_gif(data, angle=angle, max_frames=self.max_frames)
-            else:
-                logger.info(f"旋转图片: angle={angle}")
-                output = rotate_image(data, angle=angle)
-
-            await self._send_result(event, output)
-
-        except ValueError as e:
-            yield event.plain_result(f"❌ {str(e)}")
+            output = rotate_image(image_data, angle=angle_float)
+            await self._send_image(event, output, f"rotated_{angle}")
         except Exception as e:
             logger.error(f"旋转处理失败: {str(e)}")
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
 
     # ============================================================
-    #  命令2：对称 (Mirror / Flip)
+    #  对称
     # ============================================================
 
     @filter.command("对称")
-    async def cmd_mirror(self, event: AstrMessageEvent, *extra_args):
-        """
-        镜像/翻转图片/GIF。
-        用法: /对称 <方向>
-        方向: 水平(默认), 垂直, 上下, both(同时翻转)
-        示例: /对称 水平, /对称 垂直, /对称 both
-        """
-        parts = event.message_str.strip().split(maxsplit=1)
-        direction = "horizontal"  # 默认水平
+    async def mirror(self, event: AstrMessageEvent, direction: str = "水平"):
+        """水平/垂直镜像翻转图片或GIF。如 /对称 水平、/对称 垂直。"""
+        yield event.plain_result("🪞 正在处理对称效果，请稍候...")
 
-        if len(parts) >= 2:
-            raw = parts[1].strip().lower()
-            direction_map = {
-                "水平": "horizontal",
-                "左右": "horizontal",
-                "horizontal": "horizontal",
-                "h": "horizontal",
-                "垂直": "vertical",
-                "上下": "vertical",
-                "vertical": "vertical",
-                "v": "vertical",
-                "both": "both",
-                "全部": "both",
-                "全": "both",
-                "b": "both",
-            }
-            direction = direction_map.get(raw, "horizontal")
-
-        dir_label = {"horizontal": "水平", "vertical": "垂直", "both": "双向"}.get(direction, direction)
-        yield event.plain_result(f"🪞 正在执行{dir_label}对称...")
+        dir_map = {
+            "水平": "horizontal",
+            "垂直": "vertical",
+            "horizontal": "horizontal",
+            "vertical": "vertical",
+            "h": "horizontal",
+            "v": "vertical",
+        }
+        actual_dir = dir_map.get(direction)
+        if actual_dir is None:
+            yield event.plain_result("❌ 方向格式错误，请输入 水平 或 垂直，如：/对称 水平")
+            return
 
         try:
-            data = await self._extract_image(event)
-            if data is None:
-                yield event.plain_result("❌ 没有找到图片/GIF。请发送图片并附带指令，或回复一条图片消息。")
+            image_data = await self._extract_image(event)
+            if image_data is None:
+                yield event.plain_result("❌ 没有找到图片或GIF。请引用一张图片消息，或直接发送图片并附带指令。")
                 return
 
-            if _is_gif_data(data):
-                logger.info(f"对称GIF: direction={direction}")
-                output = mirror_gif(data, direction=direction, max_frames=self.max_frames)
-            else:
-                logger.info(f"对称图片: direction={direction}")
-                output = mirror_image(data, direction=direction)
-
-            await self._send_result(event, output)
-
-        except ValueError as e:
-            yield event.plain_result(f"❌ {str(e)}")
+            output = mirror_image(image_data, direction=actual_dir)
+            await self._send_image(event, output, f"mirrored_{direction}")
         except Exception as e:
             logger.error(f"对称处理失败: {str(e)}")
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
 
     # ============================================================
-    #  命令3：变速 (Speed — GIF only)
+    #  变速
     # ============================================================
 
     @filter.command("变速")
-    async def cmd_speed(self, event: AstrMessageEvent, *extra_args):
-        """
-        调整GIF播放速度。
-        用法: /变速 <倍率>
-        示例: /变速 2.0 (2倍速), /变速 0.5 (半速), /变速 3 (3倍速)
-        """
-        parts = event.message_str.strip().split(maxsplit=1)
-        speed = 1.0  # 默认不变
-
-        if len(parts) >= 2:
-            try:
-                speed = float(parts[1])
-                if speed <= 0:
-                    yield event.plain_result("❌ 速度必须大于0")
-                    return
-            except ValueError:
-                yield event.plain_result("❌ 速度格式错误，请输入数字，如 2.0、0.5、3")
-                return
-
-        yield event.plain_result(f"⏩ 正在调整速度至 {speed}x...")
+    async def speed(self, event: AstrMessageEvent, factor: str = "2.0"):
+        """调整GIF播放速度。如 /变速 2.0（倍速）、/变速 0.5（半速）。"""
+        yield event.plain_result(f"⏩ 正在调整速度为 {factor}x，请稍候...")
 
         try:
-            data = await self._extract_image(event)
-            if data is None:
-                yield event.plain_result("❌ 没有找到GIF。请发送GIF并附带指令，或回复一条GIF消息。")
+            speed_factor = float(factor)
+            if speed_factor <= 0:
+                yield event.plain_result("❌ 速度因子必须大于0")
+                return
+        except ValueError:
+            yield event.plain_result("❌ 速度因子格式错误，请输入数字，如：/变速 2.0")
+            return
+
+        try:
+            image_data = await self._extract_image(event)
+            if image_data is None:
+                yield event.plain_result("❌ 没有找到图片或GIF。请引用一张GIF消息，或直接发送GIF并附带指令。")
                 return
 
-            if not _is_gif_data(data):
-                yield event.plain_result("❌ 变速仅支持GIF格式")
+            # 检查是否为GIF
+            if not self._is_gif_data(image_data):
+                yield event.plain_result("❌ 变速仅支持GIF格式，请发送GIF图片。")
                 return
 
-            logger.info(f"变速GIF: speed={speed}")
-            output = speed_change_gif(data, speed=speed, max_frames=self.max_frames)
-
-            await self._send_result(event, output)
-
-        except ValueError as e:
-            yield event.plain_result(f"❌ {str(e)}")
+            output = speed_change(image_data, speed=speed_factor)
+            await self._send_image(event, output, f"speed_{factor}")
         except Exception as e:
             logger.error(f"变速处理失败: {str(e)}")
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
 
     # ============================================================
-    #  命令4：万花筒 (Kaleidoscope)
+    #  万花筒
     # ============================================================
 
     @filter.command("万花筒")
-    async def cmd_kaleidoscope(self, event: AstrMessageEvent, *extra_args):
-        """
-        对图片/GIF应用万花筒效果。
-        用法: /万花筒 [分割数] [旋转增量]
-        示例:
-          /万花筒           ← 8段经典万花筒
-          /万花筒 12        ← 12段
-          /万花筒 8 2       ← 8段，每帧旋转2°
-        """
-        parts = event.message_str.strip().split(maxsplit=2)
-        segments = self.kaleidoscope_segments
-        rotation_delta = 0.0
+    async def kaleidoscope_cmd(self, event: AstrMessageEvent, segments: str = None):
+        """对图片或GIF应用万花筒效果。可选参数分段数，如 /万花筒 8。"""
+        yield event.plain_result("🔮 正在生成万花筒效果，请稍候...")
 
-        if len(parts) >= 2:
+        seg = self.kaleidoscope_segments
+        if segments:
             try:
-                segments = int(parts[1])
-                if segments < 4:
-                    yield event.plain_result("❌ 分割数至少为4")
-                    return
-                if segments > 24:
-                    yield event.plain_result("❌ 分割数最多为24")
+                seg = int(segments)
+                if seg < 3 or seg > 64:
+                    yield event.plain_result("❌ 分段数推荐在 3-64 之间")
                     return
             except ValueError:
-                yield event.plain_result("❌ 分割数格式错误，请输入整数，如 4、8、12")
+                yield event.plain_result("❌ 分段数格式错误，请输入整数，如：/万花筒 8")
                 return
-
-        if len(parts) >= 3:
-            try:
-                rotation_delta = float(parts[2])
-            except ValueError:
-                yield event.plain_result("❌ 旋转增量格式错误，请输入数字，如 0、2、5")
-                return
-
-        if rotation_delta > 0:
-            yield event.plain_result(f"🌸 正在生成 {segments}段 旋转万花筒动画...")
-        else:
-            yield event.plain_result(f"🌸 正在生成 {segments}段 万花筒效果...")
 
         try:
-            data = await self._extract_image(event)
-            if data is None:
-                yield event.plain_result("❌ 没有找到图片/GIF。请发送图片并附带指令，或回复一条图片消息。")
+            image_data = await self._extract_image(event)
+            if image_data is None:
+                yield event.plain_result("❌ 没有找到图片或GIF。请引用一张图片消息，或直接发送图片并附带指令。")
                 return
 
-            if _is_gif_data(data):
-                if rotation_delta > 0:
-                    logger.info(f"万花筒GIF(动画): segments={segments}, rotation_delta={rotation_delta}")
-                    output = kaleidoscope_gif(
-                        data,
-                        segments=segments,
-                        rotation_delta=rotation_delta,
-                        max_frames=self.max_frames,
-                    )
-                else:
-                    logger.info(f"万花筒GIF(三角对称): segments={segments}")
-                    output = kaleidoscope_triangle_gif(
-                        data,
-                        segments=segments,
-                        rotation_delta=0,
-                        max_frames=self.max_frames,
-                    )
-            else:
-                logger.info(f"万花筒图片: segments={segments}")
-                output = kaleidoscope_image(data, segments=segments, rotation=rotation_delta)
-
-            await self._send_result(event, output)
-
-        except ValueError as e:
-            yield event.plain_result(f"❌ {str(e)}")
+            output = kaleidoscope(
+                image_data,
+                segments=seg,
+                zoom=self.kaleidoscope_zoom,
+                max_frames=self.max_frames,
+            )
+            await self._send_image(event, output, f"kaleidoscope_{seg}")
         except Exception as e:
             logger.error(f"万花筒处理失败: {str(e)}")
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
 
     # ============================================================
-    #  图像提取工具（参考 3dgif 插件的实现）
+    #  裸眼3D
+    # ============================================================
+
+    @filter.command("裸眼3d")
+    async def bare_eye_3d_cmd(self, event: AstrMessageEvent):
+        """将GIF转换为裸眼3D效果。请引用一条GIF消息或直接发送GIF并附带此指令。"""
+        yield event.plain_result("🕶️ 正在处理裸眼3D效果，请稍候...")
+
+        try:
+            gif_data = await self._extract_image(event)
+            if gif_data is None:
+                yield event.plain_result(
+                    "❌ 没有找到GIF图片。请引用一条GIF消息，或直接发送GIF并附带指令。"
+                )
+                return
+
+            if not self._is_gif_data(gif_data):
+                # 静态图片也支持裸眼3D（仅画线效果）
+                pass
+
+            logger.info(f"开始处理裸眼3D, 线间距={self.line_spacing}, 线宽={self.line_width}")
+            output_data = bare_eye_3d(
+                gif_data,
+                line_spacing=self.line_spacing,
+                line_width=self.line_width,
+                line_alpha=self.line_alpha,
+                line_direction=self.line_direction,
+                mask_threshold=self.mask_threshold,
+                mask_blur=self.mask_blur,
+                foreground_blur=self.foreground_blur,
+                max_frames=self.max_frames,
+            )
+
+            await self._send_image(event, output_data, "bare_eye_3d")
+        except ValueError as e:
+            yield event.plain_result(f"❌ {str(e)}")
+        except Exception as e:
+            logger.error(f"裸眼3D处理失败: {str(e)}")
+            yield event.plain_result(f"❌ 处理失败: {str(e)}")
+
+    # ============================================================
+    #  帮助
+    # ============================================================
+
+    @filter.command("图tool", alias={"img_help", "图帮助"})
+    async def help_cmd(self, event: AstrMessageEvent):
+        """显示图片工具箱帮助信息。"""
+        help_text = (
+            "🎨 图片工具箱指令\n"
+            "────────────────\n"
+            "发送或引用一张图片/GIF，附带以下指令：\n\n"
+            "🔄 /旋转 [角度]  — 旋转图片，如 /旋转 90\n"
+            "🪞 /对称 [方向]  — 水平/垂直镜像，如 /对称 水平\n"
+            "⏩ /变速 [因子]  — GIF变速，如 /变速 2.0\n"
+            "🔮 /万花筒 [段数] — 万花筒效果，如 /万花筒 8\n"
+            "🕶️ /裸眼3d       — 裸眼3D效果\n"
+            "📖 /图tool       — 显示本帮助"
+        )
+        yield event.plain_result(help_text)
+
+    # ============================================================
+    #  图片/GIF 提取 （统一提取方法，支持静态图和GIF）
     # ============================================================
 
     async def _extract_image(self, event: AstrMessageEvent) -> Optional[bytes]:
         """
-        从消息中提取图片/GIF数据。
-        查找顺序：
-        1. 当前消息链中的 Image 或 File 组件
-        2. 回复消息 → 调用平台API获取被回复消息的内容
-        3. 消息文本中的图片/GIF URL
+        从消息中提取图片或GIF数据。
+        支持：
+        1. 当前消息中的 Image 组件
+        2. File 组件（GIF文件）
+        3. 回复消息中的图片/GIF
+        4. 消息文本中的图片 URL
         """
         message_chain = event.message_obj.message
 
-        # 1. 直接检查当前消息中的 Image / File 组件
+        # 1. 直接检查当前消息中的 Image 组件
         for comp in message_chain:
             if isinstance(comp, Comp.Image):
-                img_bytes = await self._try_get_bytes(comp)
+                img_bytes = await self._try_get_image_bytes(comp)
                 if img_bytes:
                     return img_bytes
 
             if isinstance(comp, Comp.File):
                 if hasattr(comp, "name") and comp.name:
-                    name_lower = comp.name.lower()
-                    if name_lower.endswith((".gif", ".png", ".jpg", ".jpeg", ".webp", ".bmp")):
-                        img_bytes = await self._try_get_bytes(comp)
+                    if comp.name.lower().endswith((".gif", ".png", ".jpg", ".jpeg", ".webp")):
+                        img_bytes = await self._try_get_image_bytes(comp)
                         if img_bytes:
                             return img_bytes
 
         # 2. 处理回复消息
         for comp in message_chain:
             if isinstance(comp, Comp.Reply):
-                img_bytes = await self._extract_from_reply(event, comp)
+                img_bytes = await self._extract_image_from_reply(event, comp)
                 if img_bytes:
                     return img_bytes
 
-        # 3. 检查消息文本中的图片 URL
+        # 3. 检查消息字符串中是否包含图片URL
         msg_text = event.message_str
-        urls = re.findall(r"https?://[^\s)]+\.(?:gif|png|jpg|jpeg|webp|bmp)(?:\?[^\s)]*)?", msg_text, re.I)
-        for url in urls:
+        img_urls = re.findall(
+            r"https?://[^\s)]+\.(?:gif|png|jpg|jpeg|webp|bmp)", msg_text, re.I
+        )
+        for url in img_urls:
             data = await self._download_file(url)
-            if data and len(data) > 100:
+            if data:
                 return data
 
         return None
 
-    async def _extract_from_reply(self, event: AstrMessageEvent, reply_comp: Comp.Reply) -> Optional[bytes]:
-        """从被回复的消息中提取图片，兼容多平台"""
+    async def _extract_image_from_reply(
+        self, event: AstrMessageEvent, reply_comp: Comp.Reply
+    ) -> Optional[bytes]:
+        """从被回复的消息中提取图片/GIF。"""
         platform = event.get_platform_name()
         reply_id = getattr(reply_comp, "id", None)
 
         if not reply_id:
             return None
 
-        # ---- aiocqhttp (OneBot) ----
+        # aiocqhttp (QQ个人号 / OneBot协议)
         if platform == "aiocqhttp":
             try:
+                # 方法一：从 raw_message 的 source 段提取
                 raw = event.message_obj.raw_message
                 if isinstance(raw, dict):
                     source_seg = raw.get("message", [{}]) if isinstance(raw.get("message"), list) else []
-                    for seg in source_seg if isinstance(source_seg, list) else []:
-                        if isinstance(seg, dict) and seg.get("type") in ("image", "file"):
-                            url = seg.get("data", {}).get("url", "")
-                            if url:
-                                data = await self._download_file(url)
-                                if data and len(data) > 100:
-                                    return data
+                    raw_image_urls = []
+                    if isinstance(source_seg, list):
+                        for seg in source_seg:
+                            if isinstance(seg, dict) and seg.get("type") == "image":
+                                url = seg.get("data", {}).get("url", "")
+                                if url:
+                                    raw_image_urls.append(url)
+                    for url in raw_image_urls:
+                        data = await self._download_file(url)
+                        if data:
+                            return data
 
+                # 方法二：通过协议端 API get_msg
                 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import (
                     AiocqhttpMessageEvent,
                 )
@@ -353,23 +333,22 @@ class ImageToolPlugin(Star):
                 payload = {"message_id": int(reply_id) if str(reply_id).isdigit() else reply_id}
                 result = await client.api.call_action("get_msg", **payload)
                 raw_msg = result.get("message", [])
-                for seg in raw_msg if isinstance(raw_msg, list) else []:
-                    if seg.get("type") == "image":
-                        url = seg.get("data", {}).get("url", "")
-                        file_path = seg.get("data", {}).get("file", "")
-                        if url:
-                            data = await self._download_file(url)
-                            if data and len(data) > 100:
-                                return data
-                        if file_path and os.path.isfile(file_path):
-                            with open(file_path, "rb") as f:
-                                data = f.read()
-                            if len(data) > 100:
-                                return data
+                if isinstance(raw_msg, list):
+                    for seg in raw_msg:
+                        if seg.get("type") == "image":
+                            url = seg.get("data", {}).get("url", "")
+                            file_path = seg.get("data", {}).get("file", "")
+                            if url:
+                                data = await self._download_file(url)
+                                if data:
+                                    return data
+                            if file_path and os.path.isfile(file_path):
+                                with open(file_path, "rb") as f:
+                                    return f.read()
             except Exception as e:
                 logger.warning(f"aiocqhttp 获取回复消息失败: {e}")
 
-        # ---- QQ官方接口 ----
+        # QQ官方接口
         elif platform == "qq_official":
             try:
                 from astrbot.core.platform.sources.qq_official.qq_official_message_event import (
@@ -379,15 +358,16 @@ class ImageToolPlugin(Star):
                 raw = event.message_obj.raw_message
                 if hasattr(raw, "attachments"):
                     for att in raw.attachments:
-                        url = getattr(att, "url", None)
-                        if url:
-                            data = await self._download_file(url)
-                            if data and len(data) > 100:
-                                return data
+                        if att.content_type and ("image" in att.content_type.lower() or "gif" in att.content_type.lower()):
+                            url = getattr(att, "url", None)
+                            if url:
+                                data = await self._download_file(url)
+                                if data:
+                                    return data
             except Exception as e:
                 logger.warning(f"qq_official 获取回复消息失败: {e}")
 
-        # ---- Telegram ----
+        # Telegram
         elif platform == "telegram":
             try:
                 from astrbot.core.platform.sources.telegram.telegram_message_event import (
@@ -397,42 +377,36 @@ class ImageToolPlugin(Star):
                 raw = event.message_obj.raw_message
                 reply_to = getattr(raw, "reply_to_message", None)
                 if reply_to:
-                    file_id = None
-                    # 优先处理 document/animation（GIF/文件）
                     doc = getattr(reply_to, "document", None) or getattr(reply_to, "animation", None)
                     if doc:
                         file_id = getattr(doc, "file_id", None)
-                    # 照片单独处理（photo 是列表，最后一张分辨率最高）
-                    if not file_id:
-                        photos = getattr(reply_to, "photo", None)
-                        if photos:
-                            file_id = photos[-1].file_id
-                    if file_id:
-                        token = self._get_telegram_token(event)
-                        if token:
-                            import aiohttp
-                            file_url = f"https://api.telegram.org/bot{token}/getFile?file_id={file_id}"
-                            async with aiohttp.ClientSession() as session:
-                                async with session.get(file_url) as resp:
-                                    if resp.status == 200:
-                                        j = await resp.json()
-                                        if j.get("ok"):
-                                            fp = j["result"]["file_path"]
-                                            dl = f"https://api.telegram.org/file/bot{token}/{fp}"
-                                            data = await self._download_file(dl)
-                                            if data and len(data) > 100:
-                                                return data
+                        if file_id:
+                            token = self._get_telegram_token(event)
+                            if token:
+                                file_url = f"https://api.telegram.org/bot{token}/getFile?file_id={file_id}"
+                                import aiohttp
+                                async with aiohttp.ClientSession() as session:
+                                    async with session.get(file_url) as resp:
+                                        if resp.status == 200:
+                                            j = await resp.json()
+                                            if j.get("ok"):
+                                                file_path = j["result"]["file_path"]
+                                                download_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+                                                data = await self._download_file(download_url)
+                                                if data:
+                                                    return data
             except Exception as e:
                 logger.warning(f"telegram 获取回复消息失败: {e}")
 
-        # ---- 未知平台: raw_message 字符串中搜索 ----
+        # 未知平台: 尝试从 raw_message 中搜索图片URL
         else:
             try:
-                raw_str = str(event.message_obj.raw_message)
-                urls = re.findall(r"https?://[^\s)]+\.(?:gif|png|jpg|jpeg|webp|bmp)", raw_str, re.I)
+                raw = event.message_obj.raw_message
+                raw_str = str(raw)
+                urls = re.findall(r"https?://[^\s)]+\.(?:gif|png|jpg|jpeg|webp)", raw_str, re.I)
                 for url in urls:
                     data = await self._download_file(url)
-                    if data and len(data) > 100:
+                    if data:
                         return data
             except Exception as e:
                 logger.warning(f"{platform} 获取回复消息失败: {e}")
@@ -440,7 +414,7 @@ class ImageToolPlugin(Star):
         return None
 
     def _get_telegram_token(self, event: AstrMessageEvent) -> Optional[str]:
-        """获取 Telegram bot token"""
+        """尝试获取 Telegram bot token。"""
         try:
             from astrbot.core.platform.sources.telegram.telegram_message_event import (
                 TelegramMessageEvent,
@@ -454,58 +428,57 @@ class ImageToolPlugin(Star):
             pass
         return None
 
-    async def _try_get_bytes(self, comp) -> Optional[bytes]:
-        """尝试从消息组件获取图像字节数据"""
-        # file 属性（本地文件路径）
+    async def _try_get_image_bytes(self, comp) -> Optional[bytes]:
+        """尝试从消息组件中获取图片/GIF字节数据。"""
         if hasattr(comp, "file") and comp.file:
-            fp = comp.file
-            if os.path.isfile(fp):
+            file_path = comp.file
+            if os.path.isfile(file_path):
                 try:
-                    with open(fp, "rb") as f:
-                        data = f.read()
-                    if len(data) > 100:
-                        return data
+                    with open(file_path, "rb") as f:
+                        return f.read()
                 except Exception:
                     pass
-            elif str(fp).startswith(("http://", "https://")):
-                return await self._download_file(fp)
+            elif str(file_path).startswith(("http://", "https://")):
+                return await self._download_file(file_path)
 
-        # url 属性
         if hasattr(comp, "url") and comp.url:
             return await self._download_file(comp.url)
 
         return None
 
     async def _download_file(self, url: str) -> Optional[bytes]:
-        """下载文件"""
+        """下载文件并返回字节数据。"""
         import aiohttp
         try:
+            timeout = aiohttp.ClientTimeout(total=30)
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                async with session.get(url, timeout=timeout) as resp:
                     if resp.status == 200:
                         return await resp.read()
         except Exception as e:
-            logger.warning(f"下载失败 {url}: {str(e)}")
+            logger.warning(f"下载文件失败 {url}: {str(e)}")
         return None
 
-    async def _send_result(self, event: AstrMessageEvent, data: bytes):
-        """保存临时文件并发送结果，然后清理"""
-        # 根据数据判断扩展名
-        ext = ".gif" if _is_gif_data(data) else ".png"
-        temp_path = self.temp_dir / f"imgtool_{id(event)}{ext}"
+    def _is_gif_data(self, data: bytes) -> bool:
+        """检查字节数据是否为GIF格式。"""
+        return data[:6] in (b"GIF87a", b"GIF89a")
+
+    async def _send_image(self, event: AstrMessageEvent, data: bytes, tag: str):
+        """保存临时文件并发送图片结果。"""
+        ext = ".gif" if self._is_gif_data(data) else ".png"
+        temp_path = self.temp_dir / f"output_{tag}_{id(event)}{ext}"
         with open(temp_path, "wb") as f:
             f.write(data)
-
         yield event.image_result(str(temp_path))
-
         try:
             temp_path.unlink(missing_ok=True)
         except Exception:
             pass
 
     async def terminate(self):
-        """插件卸载时清理临时目录"""
+        """插件被卸载/停用时清理临时目录。"""
         try:
+            import shutil
             if self.temp_dir.exists():
                 shutil.rmtree(self.temp_dir, ignore_errors=True)
         except Exception:

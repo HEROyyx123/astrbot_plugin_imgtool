@@ -1,15 +1,17 @@
-from .main import ImageToolPlugin
+from .main import ImgToolPlugin
 from .image_processor import (
-    rotate_image, rotate_gif,
-    mirror_image, mirror_gif,
-    speed_change_gif,
-    kaleidoscope_image, kaleidoscope_gif,
+    rotate_image,
+    mirror_image,
+    speed_change,
+    kaleidoscope,
+    bare_eye_3d,
 )
 
 __all__ = [
-    "ImageToolPlugin",
-    "rotate_image", "rotate_gif",
-    "mirror_image", "mirror_gif",
-    "speed_change_gif",
-    "kaleidoscope_image", "kaleidoscope_gif",
+    "ImgToolPlugin",
+    "rotate_image",
+    "mirror_image",
+    "speed_change",
+    "kaleidoscope",
+    "bare_eye_3d",
 ]
