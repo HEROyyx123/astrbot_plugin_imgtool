@@ -14,7 +14,6 @@ AstrBot 图像工具箱插件 main.py
   /万花筒 8          ← 8段万花筒
 """
 
-import io
 import os
 import re
 import shutil
@@ -398,14 +397,16 @@ class ImageToolPlugin(Star):
                 raw = event.message_obj.raw_message
                 reply_to = getattr(raw, "reply_to_message", None)
                 if reply_to:
-                    doc = getattr(reply_to, "document", None) or getattr(reply_to, "animation", None) or getattr(reply_to, "photo", None)
                     file_id = None
+                    # 优先处理 document/animation（GIF/文件）
+                    doc = getattr(reply_to, "document", None) or getattr(reply_to, "animation", None)
                     if doc:
                         file_id = getattr(doc, "file_id", None)
-                    if not file_id and getattr(reply_to, "photo", None):
-                        photos = reply_to.photo
+                    # 照片单独处理（photo 是列表，最后一张分辨率最高）
+                    if not file_id:
+                        photos = getattr(reply_to, "photo", None)
                         if photos:
-                            file_id = photos[-1].file_id  # 最高分辨率
+                            file_id = photos[-1].file_id
                     if file_id:
                         token = self._get_telegram_token(event)
                         if token:
@@ -461,7 +462,9 @@ class ImageToolPlugin(Star):
             if os.path.isfile(fp):
                 try:
                     with open(fp, "rb") as f:
-                        return f.read()
+                        data = f.read()
+                    if len(data) > 100:
+                        return data
                 except Exception:
                     pass
             elif str(fp).startswith(("http://", "https://")):

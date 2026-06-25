@@ -13,7 +13,7 @@ import math
 import logging
 from typing import List, Tuple, Union
 
-from PIL import Image, ImageDraw, ImageFilter, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
 logger = logging.getLogger(__name__)
 
