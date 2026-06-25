@@ -1,0 +1,12 @@
+name: astrbot_plugin_imgtool
+display_name: 图片工具箱 🎨
+desc: 图片/GIF旋转、对称、变速、万花筒效果工具。发送 /旋转 90、/对称 水平、/变速 2.0、/万花筒 8 等指令并附带图片即可使用。
+short_desc: 图片工具箱 — 旋转/对称/变速/万花筒 🎨
+author: xuebao
+version: 1.0.0
+repo: https://github.com/yourname/astrbot_plugin_imgtool
+support_platforms:
+  - aiocqhttp
+  - telegram
+  - qq_official
+astrbot_version: ">=4.5.0"

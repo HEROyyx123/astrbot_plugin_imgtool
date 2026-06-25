@@ -1,0 +1,14 @@
+{
+  "max_frames": {
+    "description": "GIF最大处理帧数，超过此值会均匀采样以减少处理负担",
+    "type": "int",
+    "hint": "推荐60-150。GIF帧数过多时自动采样，过低可能影响流畅度",
+    "default": 100
+  },
+  "kaleidoscope_segments": {
+    "description": "万花筒默认分割数（4-24的偶数）",
+    "type": "int",
+    "hint": "推荐4-16。值越大图案越细密，过大会导致细节丢失",
+    "default": 8
+  }
+}
