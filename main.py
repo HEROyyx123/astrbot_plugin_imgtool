@@ -57,18 +57,18 @@ class ImageToolPlugin(Star):
     # ============================================================
 
     @filter.command("旋转")
-    async def cmd_rotate(self, event: AstrMessageEvent):
+    async def cmd_rotate(self, event: AstrMessageEvent, *extra_args):
         """
         旋转图片/GIF。
         用法: /旋转 <角度>
         示例: /旋转 90, /旋转 -45, /旋转 180
         """
-        args = event.message_str.strip().split(maxsplit=1)
+        parts = event.message_str.strip().split(maxsplit=1)
         angle = 90  # 默认角度
 
-        if len(args) >= 2:
+        if len(parts) >= 2:
             try:
-                angle = float(args[1])
+                angle = float(parts[1])
             except ValueError:
                 yield event.plain_result("❌ 角度格式错误，请输入数字，如 90、-45、180")
                 return
@@ -101,18 +101,18 @@ class ImageToolPlugin(Star):
     # ============================================================
 
     @filter.command("对称")
-    async def cmd_mirror(self, event: AstrMessageEvent):
+    async def cmd_mirror(self, event: AstrMessageEvent, *extra_args):
         """
         镜像/翻转图片/GIF。
         用法: /对称 <方向>
         方向: 水平(默认), 垂直, 上下, both(同时翻转)
         示例: /对称 水平, /对称 垂直, /对称 both
         """
-        args = event.message_str.strip().split(maxsplit=1)
+        parts = event.message_str.strip().split(maxsplit=1)
         direction = "horizontal"  # 默认水平
 
-        if len(args) >= 2:
-            raw = args[1].strip().lower()
+        if len(parts) >= 2:
+            raw = parts[1].strip().lower()
             direction_map = {
                 "水平": "horizontal",
                 "左右": "horizontal",
@@ -158,18 +158,18 @@ class ImageToolPlugin(Star):
     # ============================================================
 
     @filter.command("变速")
-    async def cmd_speed(self, event: AstrMessageEvent):
+    async def cmd_speed(self, event: AstrMessageEvent, *extra_args):
         """
         调整GIF播放速度。
         用法: /变速 <倍率>
         示例: /变速 2.0 (2倍速), /变速 0.5 (半速), /变速 3 (3倍速)
         """
-        args = event.message_str.strip().split(maxsplit=1)
+        parts = event.message_str.strip().split(maxsplit=1)
         speed = 1.0  # 默认不变
 
-        if len(args) >= 2:
+        if len(parts) >= 2:
             try:
-                speed = float(args[1])
+                speed = float(parts[1])
                 if speed <= 0:
                     yield event.plain_result("❌ 速度必须大于0")
                     return
@@ -205,7 +205,7 @@ class ImageToolPlugin(Star):
     # ============================================================
 
     @filter.command("万花筒")
-    async def cmd_kaleidoscope(self, event: AstrMessageEvent):
+    async def cmd_kaleidoscope(self, event: AstrMessageEvent, *extra_args):
         """
         对图片/GIF应用万花筒效果。
         用法: /万花筒 [分割数] [旋转增量]
@@ -214,13 +214,13 @@ class ImageToolPlugin(Star):
           /万花筒 12        ← 12段
           /万花筒 8 2       ← 8段，每帧旋转2°
         """
-        args = event.message_str.strip().split(maxsplit=2)
+        parts = event.message_str.strip().split(maxsplit=2)
         segments = self.kaleidoscope_segments
         rotation_delta = 0.0
 
-        if len(args) >= 2:
+        if len(parts) >= 2:
             try:
-                segments = int(args[1])
+                segments = int(parts[1])
                 if segments < 4:
                     yield event.plain_result("❌ 分割数至少为4")
                     return
@@ -231,9 +231,9 @@ class ImageToolPlugin(Star):
                 yield event.plain_result("❌ 分割数格式错误，请输入整数，如 4、8、12")
                 return
 
-        if len(args) >= 3:
+        if len(parts) >= 3:
             try:
-                rotation_delta = float(args[2])
+                rotation_delta = float(parts[2])
             except ValueError:
                 yield event.plain_result("❌ 旋转增量格式错误，请输入数字，如 0、2、5")
                 return
