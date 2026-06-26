@@ -4,7 +4,7 @@ from .image_processor import (
     symmetry_image,
     flip_image,
     speed_change,
-    kaleidoscope,
+    gif_roundtrip,
     bare_eye_3d,
 )
 
@@ -14,6 +14,6 @@ __all__ = [
     "symmetry_image",
     "flip_image",
     "speed_change",
-    "kaleidoscope",
+    "gif_roundtrip",
     "bare_eye_3d",
 ]
