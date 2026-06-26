@@ -47,17 +47,5 @@
     "type": "int",
     "hint": "GIF帧数过多时控制处理帧数上限，过低可能影响流畅度",
     "default": 48
-  },
-  "kaleidoscope_segments": {
-    "description": "万花筒 - 对称分段数，值越大图案越复杂",
-    "type": "int",
-    "hint": "推荐4-12。偶数效果更佳，过大会导致性能下降",
-    "default": 8
-  },
-  "kaleidoscope_zoom": {
-    "description": "万花筒 - 缩放比例，控制图案大小",
-    "type": "float",
-    "hint": "推荐0.5-2.0。1.0为原始大小",
-    "default": 1.0
   }
 }

@@ -5,16 +5,15 @@
 1. 旋转 — 任意角度旋转图片/GIF
 2. 对称 — 水平或垂直镜像翻转
 3. 变速 — 调整GIF播放速度
-4. 万花筒 — 对称分段式万花筒效果
+4. GIF往返 — GIF正序播放结束后倒序播放再拼接
 5. 裸眼3D — 分层假象裸眼3D效果（移植自 astrbot_plugin_3dgif）
 """
 
 import io
-import math
 import logging
 from typing import List, Optional, Tuple
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
 
 logger = logging.getLogger(__name__)
 
@@ -316,121 +315,39 @@ def speed_change(
 
 
 # ============================================================
-#  5. 万花筒 (Kaleidoscope)
+#  5. GIF往返 (Roundtrip) — 正序+倒序拼接
 # ============================================================
 
-def _kaleidoscope_frame(
-    frame: Image.Image,
-    segments: int = 8,
-    zoom: float = 1.0,
-    center: Optional[Tuple[float, float]] = None,
-) -> Image.Image:
-    """
-    对单帧应用万花筒效果。
-
-    原理：
-    1. 计算一个扇形楔形块（从中心到边缘）
-    2. 镜像该楔形块
-    3. 围绕中心旋转复制 segments 份
-
-    Args:
-        frame: RGBA 图像
-        segments: 对称分段数（推荐偶数 4-12）
-        zoom: 缩放比例
-        center: 中心点 (x, y)，默认为图像中心
-
-    Returns:
-        万花筒效果后的 RGBA 图像
-    """
-    w, h = frame.size
-    cx, cy = center if center else (w / 2, h / 2)
-
-    # 计算最大半径
-    max_r = math.sqrt(max(cx, w - cx) ** 2 + max(cy, h - cy) ** 2)
-
-    # 每个扇形的角度
-    angle_step = 360.0 / segments
-    half_angle = angle_step / 2.0
-
-    # 创建足够大的画布
-    size = int(max_r * 2 * zoom) + 2
-    canvas = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-
-    # 将原始帧绘制到画布中央（应用缩放）
-    src = frame
-    if zoom != 1.0:
-        nw, nh = int(w * zoom), int(h * zoom)
-        src = frame.resize((nw, nh), Image.LANCZOS)
-
-    canvas.paste(src, ((size - src.width) // 2, (size - src.height) // 2), src)
-
-    # 裁切出一个扇形（从中心到边缘）
-    # 使用一个遮罩：扇形从 -half_angle 到 +half_angle
-    wedge_mask = Image.new("L", (size, size), 0)
-    draw = ImageDraw.Draw(wedge_mask)
-
-    # 扇形遮罩（从中心到边缘）
-    center_c = size / 2
-    draw.pieslice(
-        [0, 0, size, size],
-        start=-half_angle,
-        end=half_angle,
-        fill=255,
-    )
-
-    # 对扇形内的像素进行处理
-    wedge = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    wedge.paste(canvas, (0, 0), wedge_mask)
-
-    # 将扇形镜像（左右翻转），使得拼接时连续
-    wedge_mirrored = wedge.transpose(Image.FLIP_LEFT_RIGHT)
-
-    # 围绕中心旋转 segments 份合成
-    result = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-
-    for i in range(segments):
-        angle = i * angle_step
-        if i % 2 == 0:
-            piece = wedge
-        else:
-            piece = wedge_mirrored
-        rotated = piece.rotate(angle, center=(center_c, center_c), resample=Image.BICUBIC)
-        result = Image.alpha_composite(result, rotated)
-
-    # 裁切回原始尺寸
-    ox = (size - w) // 2
-    oy = (size - h) // 2
-    result = result.crop((ox, oy, ox + w, oy + h))
-
-    # 合成到黑色背景
-    final = Image.alpha_composite(
-        Image.new("RGBA", (w, h), (0, 0, 0, 255)), result
-    )
-    return final
-
-
-def kaleidoscope(
+def gif_roundtrip(
     data: bytes,
-    segments: int = 8,
-    zoom: float = 1.0,
-    max_frames: int = 48,
 ) -> bytes:
     """
-    对图片/GIF应用万花筒效果。
+    GIF往返效果：正序播放结束后倒序播放，然后拼接起来。
+    效果类似"正向播放→倒放→正向播放→倒放…"的循环。
 
     Args:
-        data: 图像二进制数据
-        segments: 对称分段数（推荐4-12，偶数效果更佳）
-        zoom: 缩放比例（0.5-2.0）
-        max_frames: GIF最大处理帧数
+        data: GIF 二进制数据
 
     Returns:
-        处理后的图像二进制数据
+        处理后的GIF二进制数据（帧数翻倍）
     """
-    kwargs = dict(segments=segments, zoom=zoom)
-    return _process_single_frame_or_gif(
-        data, _kaleidoscope_frame, max_frames=max_frames, **kwargs,
-    )
+    if not _is_gif_data(data):
+        # 静态图片不支持往返，直接返回
+        return data
+
+    frames, durations, info = _load_gif_frames(data)
+
+    if len(frames) <= 1:
+        return _frames_to_gif(frames, durations, info)
+
+    # 正序帧 + 倒序帧（去掉首尾各1帧以避免重复）
+    reversed_frames = frames[-2:0:-1]  # 去掉第一帧和最后一帧
+    reversed_durations = durations[-2:0:-1]
+
+    combined_frames = frames + reversed_frames
+    combined_durations = durations + reversed_durations
+
+    return _frames_to_gif(combined_frames, combined_durations, info)
 
 
 # ============================================================
@@ -624,14 +541,12 @@ def apply_fx_pipeline(
     rotate_angle: Optional[float] = None,
     mirror_direction: Optional[str] = None,
     speed: Optional[float] = None,
-    kaleidoscope_segments: Optional[int] = None,
-    kaleidoscope_zoom: Optional[float] = None,
     **bare_eye_3d_kwargs,
 ) -> bytes:
     """
     按顺序应用多重效果（管道模式）。
 
-    效果顺序：旋转 → 对称 → 万花筒 → 变速 → 裸眼3D
+    效果顺序：旋转 → 对称 → 变速 → 裸眼3D
     注意：裸眼3D会覆盖前面的视觉效果，推荐单独使用。
     """
     result = data
@@ -641,13 +556,6 @@ def apply_fx_pipeline(
 
     if mirror_direction is not None:
         result = _process_gif_frames(result, _symmetry_frame, direction=mirror_direction)
-
-    if kaleidoscope_segments is not None:
-        k_zoom = kaleidoscope_zoom if kaleidoscope_zoom is not None else 1.0
-        result = _process_gif_frames(
-            result, _kaleidoscope_frame,
-            segments=kaleidoscope_segments, zoom=k_zoom,
-        )
 
     if speed is not None:
         result = speed_change(result, speed=speed)

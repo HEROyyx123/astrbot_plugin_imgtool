@@ -1,9 +1,9 @@
 name: astrbot_plugin_imgtool
 display_name: 图片工具箱
-desc: 多功能图片/GIF处理插件，支持旋转、对称、变速、万花筒、裸眼3D等效果。
+desc: 多功能图片/GIF处理插件，支持旋转、对称、变速、GIF往返、裸眼3D等效果。
 short_desc: 多功能图片/GIF工具箱 🎨
 author: xuebao
-version: 1.1.0
+version: 1.2.0
 repo: https://github.com/yourname/astrbot_plugin_imgtool
 support_platforms:
   - aiocqhttp

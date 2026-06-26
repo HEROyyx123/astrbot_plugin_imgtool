@@ -6,7 +6,7 @@ AstrBot 图片工具箱插件 main.py
 - 对称 — 轴对称：取一半镜像到另一半 (/对称 上)
 - 翻转 — 整体镜像翻转 (/翻转 水平)
 - 变速 — 调整GIF播放速度 (/变速 2.0)
-- 万花筒 — 对称分段式万花筒效果 (/万花筒)
+- GIF往返 — GIF正序+倒序拼接循环 (/往返)
 - 裸眼3D — 分层假象裸眼3D效果 (/裸眼3d)
 """
 
@@ -27,7 +27,7 @@ from .image_processor import (
     symmetry_image,
     flip_image,
     speed_change,
-    kaleidoscope,
+    gif_roundtrip,
     bare_eye_3d,
 )
 
@@ -46,10 +46,6 @@ class ImgToolPlugin(Star):
         self.mask_blur = self.config.get("mask_blur", 7)
         self.foreground_blur = self.config.get("foreground_blur", 0)
         self.max_frames = self.config.get("max_frames", 48)
-
-        # 万花筒参数
-        self.kaleidoscope_segments = self.config.get("kaleidoscope_segments", 8)
-        self.kaleidoscope_zoom = self.config.get("kaleidoscope_zoom", 1.0)
 
         # 临时目录
         self.temp_dir = Path(tempfile.gettempdir()) / "astrbot_imgtool"
@@ -181,40 +177,28 @@ class ImgToolPlugin(Star):
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
 
     # ============================================================
-    #  万花筒
+    #  GIF往返 (Roundtrip) — 正序+倒序拼接
     # ============================================================
 
-    @filter.command("万花筒")
-    async def kaleidoscope_cmd(self, event: AstrMessageEvent, segments: str = None):
-        """对图片或GIF应用万花筒效果。可选参数分段数，如 /万花筒 8。"""
-        yield event.plain_result("🔮 正在生成万花筒效果，请稍候...")
-
-        seg = self.kaleidoscope_segments
-        if segments:
-            try:
-                seg = int(segments)
-                if seg < 3 or seg > 64:
-                    yield event.plain_result("❌ 分段数推荐在 3-64 之间")
-                    return
-            except ValueError:
-                yield event.plain_result("❌ 分段数格式错误，请输入整数，如：/万花筒 8")
-                return
+    @filter.command("往返")
+    async def roundtrip_cmd(self, event: AstrMessageEvent):
+        """GIF往返效果：正序播放结束后倒序播放再拼接，形成循环。"""
+        yield event.plain_result("🔄 正在生成GIF往返效果，请稍候...")
 
         try:
             image_data = await self._extract_image(event)
             if image_data is None:
-                yield event.plain_result("❌ 没有找到图片或GIF。请引用一张图片消息，或直接发送图片并附带指令。")
+                yield event.plain_result("❌ 没有找到GIF图片。请引用一条GIF消息，或直接发送GIF并附带指令。")
                 return
 
-            output = kaleidoscope(
-                image_data,
-                segments=seg,
-                zoom=self.kaleidoscope_zoom,
-                max_frames=self.max_frames,
-            )
-            yield event.image_result(self._save_temp_image(output, "kaleidoscope"))
+            if not self._is_gif_data(image_data):
+                yield event.plain_result("❌ 往返效果仅支持GIF格式，请发送GIF图片。")
+                return
+
+            output = gif_roundtrip(image_data)
+            yield event.image_result(self._save_temp_image(output, "roundtrip"))
         except Exception as e:
-            logger.error(f"万花筒处理失败: {str(e)}")
+            logger.error(f"GIF往返处理失败: {str(e)}")
             yield event.plain_result(f"❌ 处理失败: {str(e)}")
 
     # ============================================================
@@ -273,7 +257,7 @@ class ImgToolPlugin(Star):
             "🪞 /对称 [方向]  — 轴对称：上/下/左/右\n"
             "🪞 /翻转 [方向]  — 整体翻转：水平/垂直\n"
             "⏩ /变速 [因子]  — GIF变速，如 /变速 2.0\n"
-            "🔮 /万花筒 [段数] — 万花筒效果，如 /万花筒 8\n"
+            "🔄 /往返         — GIF正序+倒序循环\n"
             "🕶️ /裸眼3d       — 裸眼3D效果\n"
             "📖 /图tool       — 显示本帮助"
         )
